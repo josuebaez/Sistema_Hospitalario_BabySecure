@@ -1,40 +1,39 @@
+// contexts/AuthContext.tsx
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import axios from 'axios';
 
-// Definir la interfaz del usuario
-export interface User {
+export interface Usuario {
     id: number;
-    name: string;
+    nombre: string;
     email: string;
+    rol: 'admin' | 'medico' | 'enfermero' | 'seguridad';
 }
 
-// Definir la interfaz del contexto
 interface AuthContextType {
-    user: User | null;
-    setUser: (user: User | null) => void;
+    user: Usuario | null;
+    setUser: (user: Usuario | null) => void;
     loading: boolean;
     logout: () => Promise<void>;
 }
 
-// Definir el tipo para las props del proveedor
 interface AuthProviderProps {
     children: React.ReactNode;
 }
 
-// Crear el contexto
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Proveedor del contexto
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
-    const [user, setUser] = useState<User | null>(null);
+    const [user, setUser] = useState<Usuario | null>(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         const fetchUser = async () => {
             try {
                 const res = await axios.get("/api/auth/me");
+                console.log('Usuario obtenido de sesión:', res.data);
                 setUser(res.data);
             } catch (err) {
+                console.log('No hay sesión activa');
                 setUser(null);
             } finally {
                 setLoading(false);
@@ -59,7 +58,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     );
 };
 
-// Hook personalizado para usar el contexto
 export const useAuth = () => {
     const context = useContext(AuthContext);
     if (context === undefined) {

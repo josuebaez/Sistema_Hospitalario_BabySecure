@@ -14,7 +14,7 @@ const Home: React.FC = () => {
                     {user && (
                         <div className="mt-4 p-4 bg-blue-50 rounded-lg">
                             <p className="text-lg text-gray-700">
-                                Has iniciado sesión como: <strong>{user.name}</strong>
+                                Has iniciado sesión como: <strong>{user.nombre}</strong>
                             </p>
                             <p className="text-gray-600">
                                 Email: {user.email}

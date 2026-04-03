@@ -1,8 +1,9 @@
+// pages/LogIn.tsx
 import React, { useState } from "react";
 import axios from "axios";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
-import backgroundImage from "../assets/BabySecure.png"; // Si tienes imagen local
+import backgroundImage from "../assets/BabySecure.png";
 
 const LogIn: React.FC = () => {
     const [form, setForm] = useState({
@@ -21,8 +22,24 @@ const LogIn: React.FC = () => {
         
         try {
             const res = await axios.post("http://localhost:5000/api/auth/login", form);
-            setUser(res.data.user);
-            navigate("/");
+            console.log('Respuesta del login:', res.data); // Verificar la respuesta
+            
+            // El backend devuelve { usuario: {...} }
+            if (res.data && res.data.usuario) {
+                setUser(res.data.usuario);
+                console.log('Usuario guardado:', res.data.usuario);
+                
+                // Redirigir según el rol
+                if (res.data.usuario.rol === 'admin') {
+                    navigate("/admin");
+                } else if (res.data.usuario.rol === 'medico' || res.data.usuario.rol === 'enfermero') {
+                    navigate("/medical");
+                } else {
+                    navigate("/");
+                }
+            } else {
+                setError("Respuesta inválida del servidor");
+            }
         } catch (err: any) {
             const errorMessage = err.response?.data?.message || "Error al iniciar sesión";
             setError(errorMessage);
@@ -42,10 +59,8 @@ const LogIn: React.FC = () => {
                 backgroundRepeat: "no-repeat"
             }}
         >
-            {/* Overlay oscuro */}
             <div className="absolute inset-0 bg-black/50"></div>
             
-            {/* Formulario con efecto Glassmorphism */}
             <form 
                 className="relative z-10 bg-white/20 backdrop-blur-md p-8 rounded-2xl shadow-2xl w-96 border border-white/30"
                 onSubmit={handleSubmit}
@@ -97,12 +112,6 @@ const LogIn: React.FC = () => {
                 >
                     {loading ? "Iniciando sesión..." : "Iniciar Sesión"}
                 </button>
-                
-                <div className="mt-4 text-center">
-                    <a href="/registro" className="text-white/80 hover:text-white text-sm">
-                        ¿No tienes cuenta? Regístrate
-                    </a>
-                </div>
             </form>
         </div>
     );

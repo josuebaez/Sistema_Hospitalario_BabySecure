@@ -1,16 +1,17 @@
+// App.tsx
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import LogIn from './pages/LogIn';
-import Registro from './pages/Registro';
 import Home from './pages/Home';
+import AdminPanel from './pages/AdminPanel';
+import MedicalPanel from './pages/MedicalPanel';
 import Navbar from './components/Navbar';
+import ProtectedRoute from './components/ProtectedRoute';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import axios from 'axios';
 
-// Configurar axios
 axios.defaults.withCredentials = true;
 axios.defaults.baseURL = 'http://localhost:5000';
 
-// Componente que maneja las rutas protegidas
 const AppRoutes = () => {
     const { user, loading } = useAuth();
 
@@ -25,19 +26,50 @@ const AppRoutes = () => {
         );
     }
 
+    const getDefaultRoute = () => {
+        if (!user) return '/login';
+        switch (user.rol) {
+            case 'admin':
+                return '/admin';
+            case 'medico':
+            case 'enfermero':
+                return '/medical';
+            default:
+                return '/';
+        }
+    };
+
     return (
         <Routes>
+            <Route path="/login" element={!user ? <LogIn /> : <Navigate to={getDefaultRoute()} />} />
+            
+            <Route 
+                path="/admin" 
+                element={
+                    <ProtectedRoute allowedRoles={['admin']}>
+                        <AdminPanel />
+                    </ProtectedRoute>
+                } 
+            />
+            
+            <Route 
+                path="/medical" 
+                element={
+                    <ProtectedRoute allowedRoles={['medico', 'enfermero']}>
+                        <MedicalPanel />
+                    </ProtectedRoute>
+                } 
+            />
+            
             <Route 
                 path="/" 
-                element={user ? <Home /> : <Navigate to="/login" />} 
-            />
-            <Route 
-                path="/login" 
-                element={!user ? <LogIn /> : <Navigate to="/" />} 
-            />
-            <Route 
-                path="/registro" 
-                element={!user ? <Registro /> : <Navigate to="/" />} 
+                element={
+                    user ? (
+                        user.rol === 'admin' ? <Navigate to="/admin" /> :
+                        user.rol === 'medico' || user.rol === 'enfermero' ? <Navigate to="/medical" /> :
+                        <Home />
+                    ) : <Navigate to="/login" />
+                } 
             />
         </Routes>
     );
