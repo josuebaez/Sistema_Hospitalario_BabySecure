@@ -52,7 +52,7 @@ const MedicalPanel: React.FC = () => {
 
     const loadMadres = async () => {
         try {
-            const res = await axios.get('/api/patients/madres');
+            const res = await axios.get('/api/madres');
             setMadres(res.data);
         } catch (error) {
             console.error('Error al cargar madres:', error);
@@ -63,7 +63,7 @@ const MedicalPanel: React.FC = () => {
     const loadBebesForMadre = async (madreUid: string) => {
         setLoadingBebes(prev => ({ ...prev, [madreUid]: true }));
         try {
-            const res = await axios.get(`/api/patients/bebes/${madreUid}`);
+            const res = await axios.get(`/api/bebes/${madreUid}`);
             setBebesPorMadre(prev => ({
                 ...prev,
                 [madreUid]: res.data
@@ -116,7 +116,7 @@ const MedicalPanel: React.FC = () => {
     const loadBebes = async (madreUid?: string) => {
         try {
             if (madreUid) {
-                const res = await axios.get(`/api/patients/bebes/${madreUid}`);
+                const res = await axios.get(`/api/bebes/${madreUid}`);
                 setBebes(res.data);
             }
         } catch (error) {
@@ -139,7 +139,7 @@ const MedicalPanel: React.FC = () => {
         setMessage({ text: '', type: '' });
 
         try {
-            await axios.post('/api/patients/madres', {
+            await axios.post('/api/madres', {
                 nombre: formData.nombre,
                 apellido: formData.apellido,
                 fecha_parto: formData.fecha_parto,
@@ -176,7 +176,7 @@ const MedicalPanel: React.FC = () => {
         setMessage({ text: '', type: '' });
 
         try {
-            await axios.post('/api/patients/bebes', {
+            await axios.post('/api/bebes', {
                 madre_uid: formData.madre_uid,
                 nombre_madre: formData.nombre_madre,
                 fecha_nacimiento: formData.fecha_nacimiento,

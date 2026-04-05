@@ -49,7 +49,7 @@ const AdminPanel: React.FC = () => {
 
     const loadPersonalMedico = async () => {
         try {
-            const res = await axios.get('/api/auth/personal-medico');
+            const res = await axios.get('/api/admin/personal-medico');
             setPersonalMedico(res.data);
         } catch (error) {
             console.error('Error al cargar personal médico:', error);
@@ -58,7 +58,7 @@ const AdminPanel: React.FC = () => {
 
     const loadPersonalSeguridad = async () => {
         try {
-            const res = await axios.get('/api/auth/personal-seguridad');
+            const res = await axios.get('/api/admin/personal-seguridad');
             setPersonalSeguridad(res.data);
         } catch (error) {
             console.error('Error al cargar personal de seguridad:', error);
@@ -115,7 +115,7 @@ const AdminPanel: React.FC = () => {
         };
 
         try {
-            const response = await axios.post('/api/auth/register', requestData);
+            const response = await axios.post('/api/admin/register', requestData);
             
             setMessage({ 
                 text: response.data.message || `${rol === 'medico' ? 'Médico' : rol === 'enfermero' ? 'Enfermero' : 'Seguridad'} registrado exitosamente`, 
