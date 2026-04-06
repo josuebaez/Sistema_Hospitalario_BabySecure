@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
+import { BiBandAid } from "react-icons/bi";
 
 interface Madre {
     id: number;
@@ -11,6 +12,7 @@ interface Madre {
     fecha_parto: string;
     hora_parto: string;
     creado_el: string;
+    activo?: boolean;
 }
 
 interface Bebe {
@@ -20,23 +22,22 @@ interface Bebe {
     fecha_nacimiento: string;
     hora_nacimiento: string;
     creado_el: string;
+    activo?: boolean;
 }
 
 const MedicalPanel: React.FC = () => {
     const { user } = useAuth();
-    const [activeTab, setActiveTab] = useState<'madres' | 'bebes'>('madres');
+    const [activeTab, setActiveTab] = useState<'madres' | 'bebes' | 'tags'>('madres');
     const [madres, setMadres] = useState<Madre[]>([]);
-    const [bebes, setBebes] = useState<Bebe[]>([]);
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
     
-    // Estados para el despliegue de bebés por madre
     const [expandedMadre, setExpandedMadre] = useState<string | null>(null);
     const [bebesPorMadre, setBebesPorMadre] = useState<Record<string, Bebe[]>>({});
     const [loadingBebes, setLoadingBebes] = useState<Record<string, boolean>>({});
     
-    // Estado para validación del nombre de la madre
     const [validationError, setValidationError] = useState('');
+    const [showConfirmModal, setShowConfirmModal] = useState<Madre | null>(null);
     
     const [formData, setFormData] = useState({
         nombre: '',
@@ -59,7 +60,6 @@ const MedicalPanel: React.FC = () => {
         }
     };
 
-    // Función para cargar bebés de una madre específica
     const loadBebesForMadre = async (madreUid: string) => {
         setLoadingBebes(prev => ({ ...prev, [madreUid]: true }));
         try {
@@ -79,20 +79,16 @@ const MedicalPanel: React.FC = () => {
         }
     };
 
-    // Función para expandir/colapsar una madre
     const toggleExpandMadre = (madreUid: string) => {
         if (expandedMadre === madreUid) {
             setExpandedMadre(null);
         } else {
             setExpandedMadre(madreUid);
-            // Cargar bebés si aún no se han cargado
-            if (!bebesPorMadre[madreUid]) {
-                loadBebesForMadre(madreUid);
-            }
+            // Siempre cargar datos frescos al expandir
+            loadBebesForMadre(madreUid);
         }
     };
 
-    // Función para verificar si el nombre de la madre coincide
     const verifyMadreNombre = (madreUid: string, nombreConfirmado: string) => {
         if (!madreUid || !nombreConfirmado) {
             setValidationError('');
@@ -103,7 +99,7 @@ const MedicalPanel: React.FC = () => {
         if (madreSeleccionada) {
             const nombreCompleto = `${madreSeleccionada.nombre} ${madreSeleccionada.apellido}`;
             if (nombreConfirmado.toLowerCase() !== nombreCompleto.toLowerCase()) {
-                setValidationError(`El nombre no coincide`);
+                setValidationError(`El nombre no coincide con "${nombreCompleto}"`);
                 return false;
             } else {
                 setValidationError('');
@@ -111,17 +107,6 @@ const MedicalPanel: React.FC = () => {
             }
         }
         return false;
-    };
-
-    const loadBebes = async (madreUid?: string) => {
-        try {
-            if (madreUid) {
-                const res = await axios.get(`/api/bebes/${madreUid}`);
-                setBebes(res.data);
-            }
-        } catch (error) {
-            console.error('Error al cargar bebés:', error);
-        }
     };
 
     useEffect(() => {
@@ -150,7 +135,6 @@ const MedicalPanel: React.FC = () => {
             setFormData({ ...formData, nombre: '', apellido: '', fecha_parto: '', hora_parto: '' });
             await loadMadres();
             
-            // Limpiar mensaje después de 3 segundos
             setTimeout(() => setMessage({ text: '', type: '' }), 3000);
         } catch (error: any) {
             setMessage({ text: error.response?.data?.message || '❌ Error al registrar', type: 'error' });
@@ -159,10 +143,42 @@ const MedicalPanel: React.FC = () => {
         }
     };
 
+    const handleDarDeAlta = async (madre: Madre) => {
+        setSubmitting(true);
+        setMessage({ text: '', type: '' });
+        
+        try {
+            await axios.put('/api/madres/dar-de-alta', { uid: madre.uid });
+            
+            setMessage({ text: `✅ Madre ${madre.nombre} ${madre.apellido} dada de alta exitosamente`, type: 'success' });
+            
+            // Recargar la lista de madres (la madre dada de alta ya no aparecerá si el backend la filtra)
+            await loadMadres();
+            
+            // Limpiar el caché de bebés de la madre dada de alta
+            setBebesPorMadre(prev => {
+                const newState = { ...prev };
+                delete newState[madre.uid]; // Eliminar completamente del caché
+                return newState;
+            });
+            
+            // Si la madre estaba expandida, cerrarla
+            if (expandedMadre === madre.uid) {
+                setExpandedMadre(null);
+            }
+            
+            setTimeout(() => setMessage({ text: '', type: '' }), 3000);
+        } catch (error: any) {
+            setMessage({ text: error.response?.data?.message || '❌ Error al dar de alta', type: 'error' });
+        } finally {
+            setSubmitting(false);
+            setShowConfirmModal(null);
+        }
+    };
+
     const handleRegisterBebe = async (e: React.FormEvent) => {
         e.preventDefault();
         
-        // Validar que el nombre coincida antes de enviar
         const isValid = verifyMadreNombre(formData.madre_uid, formData.nombre_madre);
         if (!isValid) {
             setMessage({ 
@@ -187,12 +203,12 @@ const MedicalPanel: React.FC = () => {
             setFormData({ ...formData, madre_uid: '', nombre_madre: '', fecha_nacimiento: '', hora_nacimiento: '' });
             setValidationError('');
             
-            // Mostrar bebés de la madre si se expanden los detalles
-            if (expandedMadre) {
-                await loadBebesForMadre(expandedMadre);
-            }
+            // Recargar madres para mantener la lista actualizada
+            await loadMadres();
             
-            // Limpiar mensaje después de 3 segundos
+            // Actualizar los bebés de la madre específica (incluso si no está expandida)
+            await loadBebesForMadre(formData.madre_uid);
+            
             setTimeout(() => setMessage({ text: '', type: '' }), 3000);
         } catch (error: any) {
             setMessage({ text: error.response?.data?.message || '❌ Error al registrar', type: 'error' });
@@ -206,13 +222,59 @@ const MedicalPanel: React.FC = () => {
         const newFormData = { ...formData, [name]: value };
         setFormData(newFormData);
         
-        // Validar coincidencia del nombre cuando cambia madre_uid o nombre_madre
         if (name === 'madre_uid' || name === 'nombre_madre') {
             verifyMadreNombre(
                 name === 'madre_uid' ? value : newFormData.madre_uid,
                 name === 'nombre_madre' ? value : newFormData.nombre_madre
             );
         }
+    };
+
+    // Función para ordenar bebés cronológicamente (del más antiguo al más reciente)
+    const ordenarBebesCronologico = (bebes: Bebe[]) => {
+        return [...bebes].sort((a, b) => {
+            const fechaA = new Date(`${a.fecha_nacimiento}T${a.hora_nacimiento}`);
+            const fechaB = new Date(`${b.fecha_nacimiento}T${b.hora_nacimiento}`);
+            return fechaA.getTime() - fechaB.getTime();
+        });
+    };
+
+    // Filtrar solo madres ACTIVAS para la pestaña de TAGS
+    const madresActivas = madres.filter(madre => madre.activo !== false);
+
+    // Modal de confirmación
+    const ConfirmModal = () => {
+        if (!showConfirmModal) return null;
+        
+        return (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+                    <h3 className="text-xl font-bold mb-4 text-gray-800">Confirmar Alta</h3>
+                    <p className="text-gray-600 mb-4">
+                        ¿Está seguro que desea dar de alta a <strong>{showConfirmModal.nombre} {showConfirmModal.apellido}</strong>?
+                    </p>
+                    <p className="text-red-500 text-sm mb-6">
+                        ⚠️ Esta acción no se puede deshacer. La madre y sus registros quedarán en el historial médico.
+                    </p>
+                    <div className="flex justify-end space-x-3">
+                        <button
+                            onClick={() => setShowConfirmModal(null)}
+                            className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition"
+                            disabled={submitting}
+                        >
+                            Cancelar
+                        </button>
+                        <button
+                            onClick={() => handleDarDeAlta(showConfirmModal)}
+                            className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition disabled:bg-red-300"
+                            disabled={submitting}
+                        >
+                            {submitting ? 'Procesando...' : 'Sí, Dar de Alta'}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
     };
 
     if (loading) {
@@ -225,6 +287,8 @@ const MedicalPanel: React.FC = () => {
 
     return (
         <div className="min-h-screen bg-blue-50 py-8">
+            <ConfirmModal />
+            
             <div className="container mx-auto px-4">
                 <div className="mb-8">
                     <h1 className="text-3xl font-bold text-gray-800">Panel Médico</h1>
@@ -233,6 +297,7 @@ const MedicalPanel: React.FC = () => {
                     </p>
                 </div>
 
+                {/* Tabs */}
                 <div className="flex space-x-2 mb-6 border-b">
                     <button
                         onClick={() => setActiveTab('madres')}
@@ -254,6 +319,17 @@ const MedicalPanel: React.FC = () => {
                     >
                         👶 Registro de Bebés
                     </button>
+                    <button
+                        onClick={() => setActiveTab('tags')}
+                        className={`px-6 py-3 font-semibold transition ${
+                            activeTab === 'tags'
+                                ? 'border-b-2 border-pink-500 text-pink-600'
+                                : 'text-gray-600 hover:text-pink-500'
+                        }`}
+                    >
+                        <BiBandAid className='inline-block mr-2'/>
+                        TAGS Activos
+                    </button>
                 </div>
 
                 {message.text && (
@@ -266,13 +342,14 @@ const MedicalPanel: React.FC = () => {
                     </div>
                 )}
 
+                {/* TAB 1: REGISTRO DE MADRES - Solo el formulario */}
                 {activeTab === 'madres' && (
                     <div className="bg-white rounded-lg shadow-md p-6">
                         <h2 className="text-2xl font-bold mb-6 text-gray-800">
-                            Registrar Nueva Madre
+                            Registrar Madre
                         </h2>
                         
-                        <form onSubmit={handleRegisterMadre} className="max-w-lg">
+                        <form onSubmit={handleRegisterMadre} className="max-w-lg mx-auto">
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="mb-4">
                                     <label className="block text-gray-700 text-sm font-bold mb-2">
@@ -345,110 +422,17 @@ const MedicalPanel: React.FC = () => {
                                 {submitting ? 'Registrando...' : 'Registrar Madre'}
                             </button>
                         </form>
-
-                        <div className="mt-8">
-                            <h3 className="text-xl font-bold mb-4">Madres Registradas</h3>
-                            <div className="space-y-3 max-h-96 overflow-y-auto">
-                                {madres.length === 0 ? (
-                                    <p className="text-gray-500 text-center">No hay madres registradas</p>
-                                ) : (
-                                    madres.map((madre) => (
-                                        <div key={madre.id} className="border rounded-lg hover:shadow-md transition">
-                                            {/* Cabecera de la madre - clickeable */}
-                                            <div 
-                                                className="p-4 cursor-pointer hover:bg-gray-50 transition"
-                                                onClick={() => toggleExpandMadre(madre.uid)}
-                                            >
-                                                <div className="flex justify-between items-start">
-                                                    <div className="flex-1">
-                                                        <div className="flex items-center gap-2">
-                                                            <h4 className="font-bold text-lg">
-                                                                {madre.nombre} {madre.apellido}
-                                                            </h4>
-                                                            <span className="text-xs bg-pink-100 text-pink-600 px-2 py-1 rounded-full">
-                                                                {expandedMadre === madre.uid ? '- Ocultar bebés' : '+ Mostrar bebés'}
-                                                            </span>
-                                                        </div>
-                                                        <p className="text-sm text-gray-600 mt-1">UID: {madre.uid}</p>
-                                                        <p className="text-sm text-gray-600">
-                                                            📅 Parto: {new Date(madre.fecha_parto).toLocaleDateString()} - {madre.hora_parto}
-                                                        </p>
-                                                        <p className="text-xs text-gray-400 mt-1">
-                                                            Registrado: {new Date(madre.creado_el).toLocaleString()}
-                                                        </p>
-                                                    </div>
-                                                    <div className="text-pink-500 text-2xl">
-                                                        {expandedMadre === madre.uid ? '-' : '+'}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            
-                                            {/* Bebés desplegados */}
-                                            {expandedMadre === madre.uid && (
-                                                <div className="border-t bg-gray-50 p-4 rounded-b-lg">
-                                                    <h5 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                                                        <span>👶</span> Bebés de la madre:
-                                                    </h5>
-                                                    
-                                                    {loadingBebes[madre.uid] ? (
-                                                        <div className="text-center py-4">
-                                                            <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-pink-500"></div>
-                                                            <p className="text-gray-500 text-sm mt-2">Cargando bebés...</p>
-                                                        </div>
-                                                    ) : !bebesPorMadre[madre.uid] ? (
-                                                        <p className="text-gray-500 text-sm text-center py-4">
-                                                            No hay bebés registrados
-                                                        </p>
-                                                    ) : bebesPorMadre[madre.uid].length === 0 ? (
-                                                        <div className="text-center py-4">
-                                                            <p className="text-gray-500 text-sm">
-                                                                😢 No hay bebés registrados para esta madre
-                                                            </p>
-                                                            <p className="text-xs text-gray-400 mt-1">
-                                                                Ve a la pestaña "Registro de Bebés" para registrar uno
-                                                            </p>
-                                                        </div>
-                                                    ) : (
-                                                        <div className="space-y-2">
-                                                            {bebesPorMadre[madre.uid].map((bebe, index) => (
-                                                                <div key={bebe.id} className="bg-white rounded-lg p-3 border border-gray-200 hover:shadow-sm transition">
-                                                                    <div className="flex items-start justify-between">
-                                                                        <div>
-                                                                            <p className="font-medium text-gray-800">
-                                                                                🍼 Bebé #{index + 1}
-                                                                            </p>
-                                                                            <p className="text-sm text-gray-600 mt-1">
-                                                                                📅 Nacimiento: {new Date(bebe.fecha_nacimiento).toLocaleDateString()} - {bebe.hora_nacimiento}
-                                                                            </p>
-                                                                            <p className="text-xs text-gray-400 mt-1">
-                                                                                Registrado: {new Date(bebe.creado_el).toLocaleString()}
-                                                                            </p>
-                                                                        </div>
-                                                                        <div className="text-2xl">
-                                                                            👶
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                            ))}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            )}
-                                        </div>
-                                    ))
-                                )}
-                            </div>
-                        </div>
                     </div>
                 )}
 
+                {/* TAB 2: REGISTRO DE BEBÉS - Solo el formulario */}
                 {activeTab === 'bebes' && (
                     <div className="bg-white rounded-lg shadow-md p-6">
                         <h2 className="text-2xl font-bold mb-6 text-gray-800">
-                            Registrar Nuevo Bebé
+                            Registrar Bebé
                         </h2>
                         
-                        <form onSubmit={handleRegisterBebe} className="max-w-lg">
+                        <form onSubmit={handleRegisterBebe} className="max-w-lg mx-auto">
                             <div className="mb-4">
                                 <label className="block text-gray-700 text-sm font-bold mb-2">
                                     Seleccionar Madre
@@ -498,18 +482,12 @@ const MedicalPanel: React.FC = () => {
                                         <span>✅</span> Nombre verificado correctamente
                                     </div>
                                 )}
-                                {formData.madre_uid && !formData.nombre_madre && (
-                                    <div className="mt-2 text-sm text-gray-500">
-                                        ℹ️ Por favor, escriba el nombre completo de la madre para confirmar su identidad
-                                    </div>
-                                )}
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="mb-4">
                                     <label className="block text-gray-700 text-sm font-bold mb-2">
                                         Fecha de Nacimiento
-                                        <span className="text-red-500 text-xs ml-1">*</span>
                                     </label>
                                     <input
                                         type="date"
@@ -525,7 +503,6 @@ const MedicalPanel: React.FC = () => {
                                 <div className="mb-4">
                                     <label className="block text-gray-700 text-sm font-bold mb-2">
                                         Hora de Nacimiento
-                                        <span className="text-red-500 text-xs ml-1">*</span>
                                     </label>
                                     <input
                                         type="time"
@@ -547,38 +524,143 @@ const MedicalPanel: React.FC = () => {
                                 {submitting ? 'Registrando...' : 'Registrar Bebé'}
                             </button>
                         </form>
+                    </div>
+                )}
 
-                        {/* Lista de madres con bebés */}
-                        {madres.length > 0 && (
-                            <div className="mt-8">
-                                <h3 className="text-xl font-bold mb-4">📋 Madres Registradas</h3>
-                                <div className="space-y-3 max-h-96 overflow-y-auto">
-                                    {madres.map((madre) => (
-                                        <div key={madre.id} className="border rounded-lg p-4 hover:shadow-md transition">
-                                            <div 
-                                                className="cursor-pointer hover:text-pink-600"
-                                                onClick={() => {
-                                                    setActiveTab('madres');
-                                                    setExpandedMadre(madre.uid);
-                                                    if (!bebesPorMadre[madre.uid]) {
-                                                        loadBebesForMadre(madre.uid);
-                                                    }
-                                                }}
-                                            >
-                                                <p className="font-bold text-lg">{madre.nombre} {madre.apellido}</p>
-                                                <p className="text-sm text-gray-600">UID: {madre.uid}</p>
-                                                <p className="text-sm text-gray-600">
-                                                    📅 Parto: {new Date(madre.fecha_parto).toLocaleDateString()}
-                                                </p>
-                                                <p className="text-xs text-pink-500 mt-2 flex items-center gap-1">
-                                                    <span>+</span> Ver bebés de la madre
-                                                </p>
+                {/* TAB 3: TAGS ACTIVOS - SOLO MADRES ACTIVAS */}
+                {activeTab === 'tags' && (
+                    <div className="bg-white rounded-lg shadow-md p-6">
+                        <div className="flex items-center gap-3 mb-6">
+                            <BiBandAid className="text-3xl text-pink-500" />
+                            <h2 className="text-2xl font-bold text-gray-800">
+                                TAGS Activos - Madres Registradas
+                            </h2>
+                        </div>
+                        
+                        <div className="mb-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                            <p className="text-blue-800 text-sm">
+                                📌 Los siguientes UID (TAGS) activos de las madres son para vinculación con su o sus bebés en el sistema.
+                                Estos códigos son utilizados por las madres y sus familiares para acceder al sistema.
+                            </p>
+                        </div>
+
+                        <div className="space-y-3 max-h-[600px] overflow-y-auto">
+                            {madresActivas.length === 0 ? (
+                                <p className="text-gray-500 text-center py-8">No hay madres activas registradas</p>
+                            ) : (
+                                madresActivas.map((madre) => (
+                                    <div key={madre.id} className="border rounded-lg hover:shadow-md transition">
+                                        <div 
+                                            className="p-4 cursor-pointer hover:bg-gray-50 transition"
+                                            onClick={() => toggleExpandMadre(madre.uid)}
+                                        >
+                                            <div className="flex justify-between items-start">
+                                                <div className="flex-1">
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <h4 className="font-bold text-lg">
+                                                            {madre.nombre} {madre.apellido}
+                                                        </h4>
+                                                        <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full">
+                                                            🟢 Activo
+                                                        </span>
+                                                        <span className="text-xs bg-pink-100 text-pink-600 px-2 py-1 rounded-full">
+                                                            {expandedMadre === madre.uid ? '- Ocultar bebés' : '+ Mostrar bebés'}
+                                                        </span>
+                                                    </div>
+                                                    <div className="mt-2">
+                                                        <p className="text-sm font-mono text-pink-600 font-bold">
+                                                            TAG: {madre.uid}
+                                                        </p>
+                                                        <p className="text-sm text-gray-600 mt-1">
+                                                            📅 Parto: {new Date(madre.fecha_parto).toLocaleDateString()} - {madre.hora_parto}
+                                                        </p>
+                                                        <p className="text-xs text-gray-400 mt-1">
+                                                            Registrado: {new Date(madre.creado_el).toLocaleString()}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                                <div className="flex flex-col items-end gap-2">
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setShowConfirmModal(madre);
+                                                        }}
+                                                        className="bg-green-400 text-white text-xs px-3 py-1 rounded hover:bg-green-600 transition"
+                                                    >
+                                                        ⚕️ Dar de Alta
+                                                    </button>
+                                                    <div className="text-pink-500 text-2xl">
+                                                        {expandedMadre === madre.uid ? '−' : '+'}
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
+                                        
+                                        {expandedMadre === madre.uid && (
+                                            <div className="border-t bg-gray-50 p-4 rounded-b-lg">
+                                                <h5 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                                                    <span>👶</span> Bebés de la madre:
+                                                </h5>
+                                                
+                                                {loadingBebes[madre.uid] ? (
+                                                    <div className="text-center py-4">
+                                                        <div className="inline-block animate-spin rounded-full h-6 w-6 border-b-2 border-pink-500"></div>
+                                                        <p className="text-gray-500 text-sm mt-2">Cargando bebés...</p>
+                                                    </div>
+                                                ) : !bebesPorMadre[madre.uid] ? (
+                                                    <p className="text-gray-500 text-sm text-center py-4">
+                                                        No hay bebés registrados
+                                                    </p>
+                                                ) : bebesPorMadre[madre.uid].length === 0 ? (
+                                                    <div className="text-center py-4">
+                                                        <p className="text-gray-500 text-sm">
+                                                            ⚠️ No se ha registrado ningún bebé relacionado con esta madre
+                                                        </p>
+                                                        <p className="text-xs text-gray-400 mt-1">
+                                                            Vaya a la pestaña "Registro de Bebés" para registrar uno
+                                                        </p>
+                                                    </div>
+                                                ) : (
+                                                    <div className="space-y-2">
+                                                        {(() => {
+                                                            const bebesOrdenados = ordenarBebesCronologico(bebesPorMadre[madre.uid]);
+                                                            return bebesOrdenados.map((bebe, index) => (
+                                                                <div key={bebe.id} className="bg-white rounded-lg p-3 border border-gray-200 hover:shadow-sm transition">
+                                                                    <div className="flex items-start justify-between">
+                                                                        <div>
+                                                                            <p className="font-medium text-gray-800">
+                                                                                🍼 Bebé #{index + 1}
+                                                                            </p>
+                                                                            <p className="text-sm text-gray-600 mt-1">
+                                                                                📅 Nacimiento: {new Date(bebe.fecha_nacimiento).toLocaleDateString()} - {bebe.hora_nacimiento}
+                                                                            </p>
+                                                                            <p className="text-xs text-gray-400 mt-1">
+                                                                                Registrado: {new Date(bebe.creado_el).toLocaleString()}
+                                                                            </p>
+                                                                        </div>
+                                                                        <div className="text-2xl">
+                                                                            👶
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            ));
+                                                        })()}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                        
+                        <div className="mt-4 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
+                            <p className="text-yellow-800 text-xs">
+                                💡 <strong>Nota:</strong> Estos TAGS son los códigos únicos que se entregan a cada madre al momento del registro.
+                                Las madres usan este código para iniciar sesión, y los familiares lo necesitan para registrarse y asociarse.
+                                Al dar de alta a una madre, su TAG se desactiva automáticamente y desaparece de esta lista.
+                            </p>
+                        </div>
                     </div>
                 )}
             </div>

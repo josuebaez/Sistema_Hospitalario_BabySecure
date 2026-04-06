@@ -3,71 +3,37 @@ import bcrypt from 'bcryptjs';
 import pkg from 'pg';
 const { Pool } = pkg;
 import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 
-dotenv.config();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Cargar .env desde la raíz del proyecto
+dotenv.config({ path: join(__dirname, '..', '.env') });
+
+// Mostrar configuración (ocultando contraseña), cambiar por el nombre de la BD que voy a usar
+console.log('📋 Configuración de BD:');
+console.log(`   Host: ${process.env.DB_HOST || 'localhost'}`);
+console.log(`   Puerto: ${process.env.DB_PORT || 5432}`);
+console.log(`   Base de datos: ${process.env.DB_NAME || 'pruebas'}`);
+console.log(`   Usuario: ${process.env.DB_USER || 'postgres'}`);
+console.log(`   Contraseña: ${process.env.DB_PASSWORD ? '***' : 'No definida'}`);
 
 const pool = new Pool({
     host: process.env.DB_HOST || 'localhost',
     port: process.env.DB_PORT || 5432,
-    database: process.env.DB_NAME || 'hospital',
+    database: process.env.DB_NAME || 'pruebas',
     user: process.env.DB_USER || 'postgres',
     password: process.env.DB_PASSWORD || 'postgres',
 });
 
-async function checkAndAddColumns() {
-    try {
-        // Verificar si la tabla usuarios existe
-        const checkTable = await pool.query(`
-            SELECT EXISTS (
-                SELECT FROM information_schema.tables 
-                WHERE table_name = 'usuarios'
-            )
-        `);
-        
-        if (!checkTable.rows[0].exists) {
-            console.log('⚠️ La tabla usuarios no existe. Ejecuta primero el script SQL para crear las tablas.');
-            return false;
-        }
-        
-        // Verificar si la columna rol existe
-        const checkColumn = await pool.query(`
-            SELECT column_name 
-            FROM information_schema.columns 
-            WHERE table_name = 'usuarios' AND column_name = 'rol'
-        `);
-        
-        if (checkColumn.rows.length === 0) {
-            console.log('⚠️ La columna rol no existe. Agregándola...');
-            await pool.query(`
-                ALTER TABLE usuarios 
-                ADD COLUMN rol VARCHAR(50) NOT NULL DEFAULT 'medico'
-            `);
-            console.log('✅ Columna rol agregada exitosamente');
-        } else {
-            console.log('✅ La columna rol ya existe');
-        }
-        
-        return true;
-        
-    } catch (error) {
-        console.error('Error verificando/agregando columnas:', error.message);
-        return false;
-    }
-}
-
 async function createAdmin() {
-    const client = await pool.connect();
-    
+    let client;
     try {
-        console.log('🔧 Conectando a la base de datos...');
-        
-        // Verificar que las tablas existan
-        const tablasOK = await checkAndAddColumns();
-        if (!tablasOK) {
-            console.log('\n❌ Por favor, ejecuta primero el script SQL para crear las tablas.');
-            console.log('El script SQL debe crear: usuarios, personal_medico, personal_seguridad, madres, bebes');
-            return;
-        }
+        console.log('\n🔧 Conectando a la base de datos...');
+        client = await pool.connect();
+        console.log('✅ Conexión exitosa!');
         
         // Verificar si ya existe un admin
         const checkAdmin = await client.query(
@@ -75,7 +41,7 @@ async function createAdmin() {
         );
         
         if (checkAdmin.rows.length > 0) {
-            console.log('⚠️ Ya existe un administrador en el sistema:');
+            console.log('\n⚠️ Ya existe un administrador en el sistema:');
             console.log('─────────────────────────────────');
             console.log(`ID: ${checkAdmin.rows[0].id}`);
             console.log(`Nombre: ${checkAdmin.rows[0].nombre}`);
@@ -113,19 +79,26 @@ async function createAdmin() {
         console.log('\n📝 Credenciales para iniciar sesión:');
         console.log(`   Email: ${email}`);
         console.log(`   Contraseña: ${password}`);
-        console.log('\n💡 Puedes iniciar sesión en: http://localhost:5173/login');
         
     } catch (error) {
-        console.error('❌ Error al crear administrador:', error.message);
+        console.error('\n❌ Error:', error.message);
         
-        if (error.code === '23505') {
-            console.log('⚠️ El email ya está registrado.');
+        if (error.code === '28P01') {
+            console.log('\n⚠️ Error de autenticación. Verifica:');
+            console.log('   1. La contraseña del usuario PostgreSQL');
+            console.log('   2. El nombre de usuario (por defecto es "postgres")');
+            console.log('   3. Las variables en el archivo .env');
+            console.log('\n💡 Puedes probar con:');
+            console.log('   DB_PASSWORD=tu_contraseña_correcta');
         } else if (error.code === '42P01') {
-            console.log('⚠️ La tabla usuarios no existe.');
-            console.log('Por favor, ejecuta primero el script SQL para crear las tablas.');
+            console.log('\n⚠️ La tabla usuarios no existe.');
+            console.log('   Ejecuta primero el script SQL para crear las tablas.');
+        } else if (error.code === '3D000') {
+            console.log('\n⚠️ La base de datos no existe.');
+            console.log(`   Crea la base de datos: CREATE DATABASE ${process.env.DB_NAME || 'pruebas'};`);
         }
     } finally {
-        client.release();
+        if (client) client.release();
         await pool.end();
     }
 }

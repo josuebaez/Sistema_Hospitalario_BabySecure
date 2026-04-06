@@ -9,6 +9,7 @@ import madreRoutes from "./routes/madreRoutes.js";
 import bebeRoutes from "./routes/bebeRoutes.js";
 import familiarRoutes from "./routes/familiarRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
+import accesosRoutes from "./routes/accesosRoutes.js";
 
 dotenv.config();
 
@@ -30,6 +31,7 @@ app.use("/api/madres", madreRoutes);
 app.use("/api/bebes", bebeRoutes);
 app.use("/api/familiares", familiarRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/accesos", accesosRoutes);
 
 const PORT = process.env.PORT || 5000;
 

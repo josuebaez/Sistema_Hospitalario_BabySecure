@@ -1,11 +1,13 @@
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import pool from "../config/db.js";
 import User from "../models/User.js";
 import Madre from "../models/Madre.js";
 import Familiar from "../models/Familiar.js";
 import { generateToken, cookieOptions } from "../utils/tokenService.js";
 import { validateEmail } from "../utils/validators.js";
 
+// Login para personal médico y admin
 export const loginPersonal = async (req, res) => {
     const { email, password } = req.body;
 
@@ -43,6 +45,7 @@ export const loginPersonal = async (req, res) => {
     }
 };
 
+// Login para madres
 export const loginMadre = async (req, res) => {
     const { uid, confirmacion_uid } = req.body;
 
@@ -68,12 +71,20 @@ export const loginMadre = async (req, res) => {
     }
 
     try {
-        const madreData = await Madre.findByUid(uid);
+        const madreData = await Madre.findByUid(uid, false); // false = incluir inactivas para verificar
 
         if (!madreData) {
             return res.status(404).json({ 
                 success: false,
                 message: 'No se encontró una madre con este UID' 
+            });
+        }
+
+        // Verificar si la madre está activa
+        if (!madreData.activo) {
+            return res.status(401).json({ 
+                success: false,
+                message: 'Esta cuenta ha sido desactivada por alta médica' 
             });
         }
 
@@ -115,8 +126,11 @@ export const loginMadre = async (req, res) => {
     }
 };
 
+// Login para familiares
 export const loginFamiliar = async (req, res) => {
-    const { email, password } = req.body;
+    const { email, password } = req.body; // password es el UID de la madre
+
+    console.log(`🔐 Intento de login familiar: ${email}`);
 
     if (!email || !password) {
         return res.status(400).json({
@@ -133,24 +147,63 @@ export const loginFamiliar = async (req, res) => {
     }
 
     try {
-        const familiarData = await Familiar.findByEmail(email);
+        // Buscar el familiar por email
+        const familiarQuery = await pool.query(
+            `SELECT f.*, m.activo as madre_activa, m.nombre as madre_nombre, m.apellido as madre_apellido
+             FROM familiares f
+             JOIN madres m ON f.madre_uid = m.uid
+             WHERE f.email = $1`,
+            [email]
+        );
+        
+        const familiarData = familiarQuery.rows[0];
 
         if (!familiarData) {
+            console.log(`❌ Familiar no encontrado: ${email}`);
             return res.status(404).json({
                 success: false,
                 message: "No se encontró un familiar con este correo electrónico"
             });
         }
 
-        if (familiarData.madre_uid !== password) {
+        console.log(`📋 Familiar encontrado: ${familiarData.nombre} ${familiarData.apellido}`);
+        console.log(`   - Activo: ${familiarData.activo}`);
+        console.log(`   - Madre activa: ${familiarData.madre_activa}`);
+        console.log(`   - Madre UID esperado: ${familiarData.madre_uid}`);
+        console.log(`   - UID proporcionado: ${password}`);
+
+        // Verificar si el familiar está activo
+        if (!familiarData.activo) {
             return res.status(401).json({
                 success: false,
-                message: "UID de madre incorrecto"
+                message: familiarData.motivo_desactivacion || "Tu cuenta ha sido desactivada. Contacta al hospital."
             });
         }
 
-        await Familiar.updateLastAccess(familiarData.id);
+        // Verificar si la madre está activa
+        if (!familiarData.madre_activa) {
+            return res.status(401).json({
+                success: false,
+                message: "La madre asociada a tu cuenta ha sido dada de alta del sistema. Ya no tienes acceso."
+            });
+        }
 
+        // Verificar que el UID de la madre coincida
+        if (familiarData.madre_uid !== password) {
+            console.log(`❌ UID incorrecto para ${email}`);
+            return res.status(401).json({
+                success: false,
+                message: "UID de madre incorrecto. Verifica el código proporcionado por el hospital."
+            });
+        }
+
+        // Actualizar último acceso
+        await pool.query(
+            "UPDATE familiares SET ultimo_acceso = NOW() WHERE id = $1",
+            [familiarData.id]
+        );
+
+        // Generar token JWT
         const token = jwt.sign(
             {
                 id: familiarData.id,
@@ -166,12 +219,15 @@ export const loginFamiliar = async (req, res) => {
             { expiresIn: "7d" }
         );
 
+        // Configurar cookie
         res.cookie("token", token, {
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
             sameSite: "strict",
             maxAge: 7 * 24 * 60 * 60 * 1000,
         });
+
+        console.log(`✅ Login exitoso para familiar: ${email}`);
 
         res.json({
             success: true,
@@ -183,8 +239,7 @@ export const loginFamiliar = async (req, res) => {
                 email: familiarData.email,
                 parentezco: familiarData.parentezco,
                 rol: 'familiar',
-                madre_uid: familiarData.madre_uid,
-                ultimo_acceso: familiarData.ultimo_acceso
+                madre_uid: familiarData.madre_uid
             }
         });
 
@@ -192,16 +247,39 @@ export const loginFamiliar = async (req, res) => {
         console.error("Error en login de familiar:", error);
         res.status(500).json({
             success: false,
-            message: "Error en el servidor"
+            message: "Error en el servidor. Intenta más tarde."
         });
     }
 };
 
+// Obtener usuario actual (para verificar sesión)
 export const getCurrentUser = async (req, res) => {
-    res.json(req.user);
+    try {
+        if (!req.user) {
+            return res.status(401).json({ 
+                success: false,
+                message: "No hay sesión activa" 
+            });
+        }
+        
+        res.json({
+            success: true,
+            usuario: req.user
+        });
+    } catch (error) {
+        console.error("Error en getCurrentUser:", error);
+        res.status(500).json({ 
+            success: false,
+            message: "Error en el servidor" 
+        });
+    }
 };
 
+// Cerrar sesión
 export const logout = (req, res) => {
     res.cookie("token", "", { ...cookieOptions, maxAge: 1 });
-    res.json({ message: 'Sesión cerrada' });
+    res.json({ 
+        success: true,
+        message: 'Sesión cerrada correctamente' 
+    });
 };
